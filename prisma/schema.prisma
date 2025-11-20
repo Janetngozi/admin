@@ -1,0 +1,312 @@
+// This is your Prisma schema file for STEC E-Commerce Platform
+// Optimized for 50,000+ products with proper indexing
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Management with Role-Based Pricing
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  firstName     String?
+  lastName      String?
+  phone         String?
+  accountType   UserRole  @default(CUSTOMER)
+  isActive      Boolean   @default(true)
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  orders        Order[]
+  cartItems     CartItem[]
+  wishlistItems WishlistItem[]
+  addresses     Address[]
+  syncLogs      SyncLog[]
+
+  @@index([email])
+  @@index([accountType])
+  @@map("users")
+}
+
+enum UserRole {
+  CUSTOMER
+  WHOLESALE
+  DISTRIBUTOR
+  ADMIN
+}
+
+// Product Catalog - Optimized for 50K+ products
+model Product {
+  id          String   @id @default(cuid())
+  sku         String   @unique
+  name        String
+  description String?  @db.Text
+  slug        String   @unique
+  price       Float
+  cost        Float?   // For margin calculation
+  images      String[] // Array of image URLs
+  category    String
+  subcategory String?
+  brand       String?
+  tags        String[] // For search optimization
+  inStock     Boolean  @default(true)
+  stockQty    Int      @default(0)
+  weight      Float?
+  dimensions  String?  // JSON string: {"length": 10, "width": 5, "height": 3}
+  isActive    Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  quickSalesId String? // QuickSales product ID
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  orderItems     OrderItem[]
+  cartItems      CartItem[]
+  wishlistItems  WishlistItem[]
+  priceOverrides PriceOverride[]
+  inventoryLogs  InventoryLog[]
+
+  @@index([sku])
+  @@index([slug])
+  @@index([category])
+  @@index([isActive, isFeatured])
+  @@index([quickSalesId])
+  @@index([name]) // For search
+  @@map("products")
+}
+
+// Role-Based Pricing
+model PriceOverride {
+  id        String   @id @default(cuid())
+  productId String
+  userRole  UserRole
+  price     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, userRole])
+  @@index([userRole])
+  @@map("price_overrides")
+}
+
+// Shopping Cart
+model CartItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("cart_items")
+}
+
+// Wishlist
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("wishlist_items")
+}
+
+// Addresses
+model Address {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   @default("shipping") // shipping, billing
+  firstName   String
+  lastName    String
+  company     String?
+  address1    String
+  address2    String?
+  city        String
+  state       String
+  zipCode     String
+  country     String   @default("US")
+  phone       String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// Orders with QuickSales Integration
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique // Human-readable order number
+  userId          String
+  status          OrderStatus @default(PENDING_PAYMENT)
+  paymentStatus   String      @default("pending") // pending, paid, failed, refunded
+  paymentMethod   String?     // stripe, paypal, etc.
+  paymentIntentId String?     // Stripe payment intent ID
+  subtotal        Float
+  tax             Float        @default(0)
+  shipping        Float        @default(0)
+  discount        Float        @default(0)
+  total           Float
+  currency        String       @default("USD")
+  
+  // QuickSales Integration
+  quickSalesOrderId String?    // Order ID from QuickSales
+  quickSalesSyncStatus SyncStatus @default(PENDING)
+  quickSalesSyncAt   DateTime?
+  quickSalesError    String?    @db.Text
+  
+  // Shipping
+  shippingAddressId String?
+  billingAddressId  String?
+  trackingNumber    String?
+  carrier           String?
+  
+  // Metadata
+  notes            String?     @db.Text
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  paidAt           DateTime?
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id])
+  items     OrderItem[]
+  syncLogs  SyncLog[]
+
+  @@index([userId])
+  @@index([orderNumber])
+  @@index([status])
+  @@index([quickSalesOrderId])
+  @@index([quickSalesSyncStatus])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum SyncStatus {
+  PENDING
+  SYNCING
+  SYNCED
+  FAILED
+  RETRYING
+}
+
+// Order Items
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String
+  sku       String
+  name      String
+  price     Float    // Price at time of order
+  quantity  Int
+  subtotal  Float
+  createdAt DateTime @default(now())
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// QuickSales Sync Logging
+model SyncLog {
+  id          String   @id @default(cuid())
+  type        String   // "order" or "inventory"
+  entityId    String   // Order ID or Product ID
+  userId      String?
+  status      String   // "success", "error", "retry"
+  message     String?  @db.Text
+  requestData Json?    // Request payload sent to QuickSales
+  responseData Json?   // Response from QuickSales
+  errorCode   String?
+  retryCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  order Order? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([type, entityId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("sync_logs")
+}
+
+// Inventory Tracking
+model InventoryLog {
+  id          String   @id @default(cuid())
+  productId   String
+  changeType  String   // "sale", "restock", "adjustment", "sync"
+  quantity    Int      // Positive for restock, negative for sale
+  previousQty Int
+  newQty      Int
+  reason      String?
+  referenceId String?  // Order ID or sync ID
+  createdAt   DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([createdAt])
+  @@index([changeType])
+  @@map("inventory_logs")
+}
+
+// Coupons/Discounts
+model Coupon {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  type        String   // "percentage" or "fixed"
+  value       Float
+  minPurchase  Float?
+  maxDiscount Float?
+  validFrom    DateTime
+  validUntil   DateTime
+  usageLimit   Int?
+  usedCount    Int     @default(0)
+  isActive     Boolean @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([code])
+  @@index([isActive, validFrom, validUntil])
+  @@map("coupons")
+}
+
+
+
