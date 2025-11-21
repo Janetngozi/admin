@@ -1,13 +1,12 @@
-import React from 'react';
-import Dashboard from './component/dashboard';
-import Order from './orders/[id]/order';
+// import React from "react";
+// import Dashboard from "./dashboard/page";
+// import OrderManagementSystem from "./order/page";
 
-export default function AdminPage() {
-  return (
-    <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
-      <Dashboard />
-      <Order />
-    </div>
-  );
-}
-    
+// export default function AdminPage() {
+//   return (
+//     <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
+//       <Dashboard />
+//       <OrderManagementSystem />
+//     </div>
+//   );
+// }
